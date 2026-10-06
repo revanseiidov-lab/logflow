@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Kullanim: ./logflow data/access-small.log
+# Once "mvn -q package" ile jar uretilmis olmalidir.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec java -jar "$DIR/target/logflow.jar" "$@"

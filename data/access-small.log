@@ -1,0 +1,18 @@
+192.168.1.10 - - [10/Oct/2023:13:55:36 +0300] "GET /index.html HTTP/1.1" 200 2326 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/118.0"
+192.168.1.11 - alice [10/Oct/2023:13:55:40 +0300] "GET /images/logo.png HTTP/1.1" 200 5120 "http://example.com/index.html" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1"
+10.0.0.5 - - [10/Oct/2023:13:56:01 +0300] "POST /api/login HTTP/1.1" 401 128 "-" "curl/8.1.2"
+10.0.0.5 - - [10/Oct/2023:13:56:07 +0300] "POST /api/login HTTP/1.1" 200 512 "-" "curl/8.1.2"
+172.16.4.2 - - [10/Oct/2023:13:57:12 +0300] "GET /search?q=log+analysis&page=2 HTTP/1.1" 200 9042 "-" "Mozilla/5.0 (X11; Linux x86_64) Firefox/118.0"
+172.16.4.2 - - [10/Oct/2023:13:57:30 +0300] "GET /missing/page HTTP/1.1" 404 - "-" "Mozilla/5.0 (X11; Linux x86_64) Firefox/118.0"
+this line is not a valid log entry
+
+192.168.1.12 - - [10/Oct/2023:13:58:02 +0300] "GET /docs/architecture.pdf HTTP/1.1" 200 1048576 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148"
+192.168.1.13 - - [31/Foo/2023:13:58:44 +0300] "GET /bad-timestamp HTTP/1.1" 200 10 "-" "Mozilla/5.0"
+192.168.1.14 - - [10/Oct/2023:13:59:10 +0300] "GET /bad-status HTTP/1.1" abc 10 "-" "Mozilla/5.0"
+203.0.113.7 - - [10/Oct/2023:14:00:00 +0300] "DELETE /api/items/42 HTTP/1.1" 500 77 "-" "PostmanRuntime/7.34.0"
+203.0.113.7 - - [10/Oct/2023:14:00:05 +0300] "GET /health HTTP/1.1" 200 2 "-" "kube-probe/1.28"
+198.51.100.23 - - [10/Oct/2023:14:01:15 +0300] "GET /products?category=books HTTP/1.1" 304 0 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/118.0"
+198.51.100.23 - - [10/Oct/2023:14:01:20 +0300] "GET /products/17 HTTP/1.1" 200 3310 "http://example.com/products?category=books" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/118.0"
+198.51.100.24 - - [10/Oct/2023:14:02:44 +0300] "HEAD /index.html HTTP/1.1" 200 0 "-" "Googlebot/2.1 (+http://www.google.com/bot.html)"
+192.168.1.10 - - [10/Oct/2023:14:03:01 +0300] "GET /about HTTP/1.1" 200 1500 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/118.0"
+192.168.1.10 - - [10/Oct/2023:14:03:05 +0300] "GET /contact HTTP/1.1" 200 1800 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/118.0"
