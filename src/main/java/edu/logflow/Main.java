@@ -11,8 +11,11 @@ public final class Main {
             System.err.println("Kullanim: logflow <gunluk-dosyasi>");
             System.exit(2);
         }
+        ParserStage parser = new ParserStage();
         Pipeline.from(new LineSource(Path.of(args[0])))
+                .then(parser)
                 .to(new ConsoleSink(System.out))
                 .run();
+        System.out.println("Hatali (atlanan) satir sayisi: " + parser.malformedCount());
     }
 }
