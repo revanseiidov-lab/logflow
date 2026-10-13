@@ -7,11 +7,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /** Bir metin dosyasını satır satır okuyan kaynak. Dosya sistemine dokunan tek yer burasıdır. */
-public final class LineSource implements Source<String> {
+public final class FileLineSource implements Source<String> {
 
     private final Path file;
 
-    public LineSource(Path file) {
+    public FileLineSource(Path file) {
         this.file = file;
     }
 

@@ -25,7 +25,7 @@ class PipelineTest {
             out.emit(LINE);
         };
 
-        Pipeline.from(source).then(parser).to(received::add).run();
+        PipelineBuilder.from(source).via(parser).to(received::add).run();
 
         assertEquals(2, received.size());
         assertEquals(1, parser.malformedCount());
@@ -38,18 +38,18 @@ class PipelineTest {
         Stage<String, String> addX = (in, out) -> out.emit(in + "x");
         Stage<String, String> addY = (in, out) -> out.emit(in + "y");
 
-        Pipeline.from(source).then(addX).then(addY).to(received::add).run();
+        PipelineBuilder.from(source).via(addX).via(addY).to(received::add).run();
 
         assertEquals(List.of("axy"), received);
     }
 
     @Test
-    void lineSourceReadsFileLineByLine(@TempDir Path dir) throws IOException {
+    void fileLineSourceReadsFileLineByLine(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("t.log");
         Files.writeString(file, "one\ntwo\nthree\n");
         List<String> received = new ArrayList<>();
 
-        Pipeline.from(new LineSource(file)).to(received::add).run();
+        PipelineBuilder.from(new FileLineSource(file)).to(received::add).run();
 
         assertEquals(List.of("one", "two", "three"), received);
     }
