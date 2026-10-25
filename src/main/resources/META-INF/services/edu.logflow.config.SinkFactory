@@ -1,0 +1,2 @@
+edu.logflow.plugins.FileSinkFactory
+edu.logflow.plugins.ConsoleSinkFactory

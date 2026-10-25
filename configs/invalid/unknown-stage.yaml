@@ -1,0 +1,7 @@
+pipeline:
+  source: { type: file, params: { path: data/access-small.log } }
+  stages:
+    - type: parse
+    - type: fliter
+      params: { field: status, op: ">=", value: 400 }
+  sink: { type: file, params: { path: out/x.txt } }

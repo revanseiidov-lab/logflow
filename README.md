@@ -1,120 +1,207 @@
 # LogFlow — Yazılım Mimarisi Dönem Projesi
 
 Günlük (log) dosyalarını **işlem hattı (pipeline)** mimarisiyle işleyen küçük bir Java uygulaması.
-Bu sürüm: **v3 — Bileşim: Filtreleme, Projeksiyon ve Pipeline Builder** (Artım 3).
-Mimari kararlar ve **aşama sırası deneyi**: [ARCHITECTURE.md](ARCHITECTURE.md).
+Bu sürüm: **v4 — Yapılandırma Odaklı Birleştirme ve Aşama Kaydı** (Artım 4).
+
+Ana fikir: hattın *topolojisi* artık Java kodunda değil **YAML dosyasında**. Yeni bir hat için
+**yeniden derleme gerekmez**: aynı `logflow.jar`, farklı yapılandırma dosyasıyla farklı davranır.
+
+Belgeler: [ARCHITECTURE.md](ARCHITECTURE.md) (yapılandırma şeması, kayıt sistemi, hata türleri,
+v3 deneyi) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Çalıştırma
 
 Gereksinimler: JDK 17+ ve Maven 3.9+.
 
 ```bash
-mvn -q package                 # testleri çalıştırır, jar üretir, kapsama raporu oluşturur
-./logflow data/access-small.log --min-status 400 --path-prefix /api --fields timestamp,clientIp,status
+mvn -q package -DskipTests                  # jar üretir (sessiz çalışır; hata yoksa çıktı vermez)
+./logflow --config configs/error-report.yaml
+cat out/errors.txt
 ```
 
-Windows: `logflow.bat data\access-small.log ...`
+Windows: `logflow.bat --config configs\error-report.yaml`
+
+### Aynı çalıştırılabilir dosya, üç farklı davranış
+
+```bash
+./logflow --config configs/error-report.yaml          # -> out/errors.txt              (3 satır)
+./logflow --config configs/api-traffic.yaml           # -> out/api-traffic.txt         (3 satır)
+./logflow --config configs/bandwidth-by-client.yaml   # -> out/bandwidth-by-client.txt (11 satır)
+```
+
+| Yapılandırma | Hat | Çıktı |
+|---|---|---|
+| `configs/error-report.yaml` | `parse → filter(status >= 400) → project(timestamp, clientIp, status, path)` | hata raporu |
+| `configs/api-traffic.yaml` | `parse → filter(path startsWith /api) → project(timestamp, method, path, status)` | API trafiği |
+| `configs/bandwidth-by-client.yaml` | `parse → filter(bytes > 0) → project(clientIp, bytes)` | istemci başına bant genişliği verisi |
+
+`error-report.yaml`:
+
+```yaml
+pipeline:
+  name: error-report
+  source:
+    type: file
+    params: { path: data/access-small.log }
+  stages:
+    - type: parse
+      params: { format: clf }
+    - type: filter
+      params: { field: status, op: ">=", value: 400 }
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+  sink:
+    type: file
+    params: { path: out/errors.txt }
+```
+
+Şemanın tamamı (tüm tür ve parametreler): [ARCHITECTURE.md](ARCHITECTURE.md), "Yapılandırma şeması".
 
 ### Komut satırı
 
 ```
+logflow --config <yapilandirma.yaml> [--dry-run]
 logflow <girdi> [--output dosya] [--min-status N] [--path-prefix önek]
-                [--since an] [--until an] [--fields a,b,c]
+        [--since an] [--until an] [--fields a,b,c]          (v3 kipi, hâlâ çalışır)
 ```
 
-| Seçenek | Anlamı |
-|---|---|
-| `--min-status N` | yalnızca `status >= N` |
-| `--path-prefix P` | yalnızca `path` `P` ile başlıyorsa |
-| `--since T` / `--until T` | `T1 <= zaman < T2` (ISO, ör. `2023-10-10T11:00:00Z`) |
-| `--fields a,b,c` | yalnızca bu alanlar (varsayılan hepsi) — veri minimizasyonu |
-| `--output F` | sonucu dosyaya yazar (yoksa ekrana yazar) |
+- `--dry-run`: yapılandırmayı yalnızca doğrular, **hiç veri işlemez, dosya yazmaz**:
+  `Yapilandirma gecerli: error-report: file -> parse -> filter -> project -> file`
+- `--config` başka seçeneklerle birlikte kullanılmaz.
+- Çıkış kodu: `0` başarılı · `1` çalışma hatası (ör. çıktı yazılamadı) · `2` hatalı argüman **ya da yapılandırma hatası**.
+- Atlanan hatalı satır sayısı `stderr`'e yazılır.
 
-Geçerli alanlar: `timestamp, clientIp, method, path, status, bytes, userAgent, query`.
-Verilmeyen filtre hatta eklenmez. Atlanan hatalı satır sayısı `stderr`'e yazılır. Çıkış kodu:
-0 başarılı, 1 çalışma hatası, 2 hatalı argüman.
+## Hata mesajı örnekleri
 
-Örnek çıktı (`--min-status 400 --fields timestamp,clientIp,status,path`):
+Yapılandırma hataları **tek satır okunmadan, tek dosya yazılmadan, yükleme sırasında** bildirilir
+(fail fast, fail loudly), çıkış kodu 2. İletiler dosyayı, yeri ve çözümü söyler.
+Aşağıdakilerin hepsi `configs/invalid/` altındaki gerçek dosyalardan alınmış gerçek çıktılardır;
+her çalıştırmadan sonra `out/` dizini **oluşmaz**.
+
+**Bilinmeyen aşama türü** (`unknown-stage.yaml`, yazım hatası `fliter`):
 
 ```
-timestamp=2023-10-10T10:56:01Z	clientIp=10.0.0.5	status=401	path=/api/login
-timestamp=2023-10-10T10:57:30Z	clientIp=172.16.4.2	status=404	path=/missing/page
-timestamp=2023-10-10T11:00:00Z	clientIp=203.0.113.7	status=500	path=/api/items/42
+Yapilandirma hatasi: configs/invalid/unknown-stage.yaml: stages[1]: bilinmeyen asama (stage) turu 'fliter'. Bunu mu demek istediniz: 'filter'? Kullanilabilir turler: filter, parse, project
 ```
+
+**Eksik parametre** (`missing-param.yaml`, `filter` için `field` yok):
+
+```
+Yapilandirma hatasi: configs/invalid/missing-param.yaml: stages[1] ('filter'): zorunlu parametre eksik: 'field'. Ornek: params: { field: status, op: ">=", value: 400 }
+```
+
+**Yanlış türde parametre** (`wrong-type.yaml`, sayı yerine metin):
+
+```
+Yapilandirma hatasi: configs/invalid/wrong-type.yaml: stages[1] ('filter'): 'value' parametresi tam sayi ('status' sayisal bir alan) olmali, bulundu: metin "dortyuz". Ornek: params: { field: status, op: ">=", value: 400 }
+```
+
+**Boş işlem hattı** (`empty-pipeline.yaml`, `stages: []`):
+
+```
+Yapilandirma hatasi: configs/invalid/empty-pipeline.yaml: pipeline.stages bos: en az bir asama gerekir. Ornek:
+  stages:
+    - type: parse
+```
+
+**Aşama tipleri uyuşmuyor** (`type-mismatch.yaml`, `project` unutulmuş):
+
+```
+Yapilandirma hatasi: configs/invalid/type-mismatch.yaml: sink ('file'): tip uyusmazligi: bu cikis ProjectedRecord bekliyor, ama stages[1] ('filter') LogRecord uretiyor. Araya su asamalardan biri gerekir: project.
+```
+
+**Kaynak dosya yok** (`missing-source-file.yaml`; kaynak dosya yükleme sırasında denetlenir, tek satır okunmadan):
+
+```
+Yapilandirma hatasi: configs/invalid/missing-source-file.yaml: source ('file'): kaynak dosya bulunamadi ya da okunamiyor: data/yok.log (calisma dizini: <calisma-dizini>)
+```
+
+**Bozuk YAML** (`bad-yaml.yaml`, kapanmayan `{`):
+
+```
+Yapilandirma hatasi: configs/invalid/bad-yaml.yaml: satir 2: ',' ya da '}' bekleniyordu: '{ type: file, params: { path: data/access-small.log }'
+```
+
+**Yapılandırma dosyası yok / hatalı argüman:**
+
+```
+$ ./logflow --config nofile.yaml
+Yapilandirma hatasi: nofile.yaml: yapilandirma dosyasi bulunamadi ya da okunamiyor (NoSuchFileException)
+
+$ ./logflow --config configs/error-report.yaml --min-status 400
+Hata: --config baska seceneklerle ya da girdi dosyasiyla birlikte kullanilamaz (yalnizca --dry-run ile)
+```
+
+> **Yapılandırma hatası ≠ veri hatası.** Bozuk bir *günlük satırı* yapılandırma hatası değildir:
+> `ParserStage` onu atlar ve sayar (`Hatali (atlanan) satir sayisi: 4`); nedenleri 5. haftanın konusu.
 
 ## Mimari
 
 ```
-FileLineSource ─String─▶ ParserStage ─LogRecord─▶ PredicateFilterStage* ─▶ ProjectionStage ─ProjectedRecord─▶ FileSink
+YAML ─▶ MiniYaml ─▶ PipelineConfig ─▶ PipelineLoader ─▶ PipelineBuilder ─▶ Pipeline.run()
+                                          │  ▲
+                            Source/Stage/SinkRegistry  (tür adı → fabrika, ServiceLoader ile keşfedilir)
 ```
 
 | Parça | Sorumluluk |
 |---|---|
-| `Source<T>` / `FileLineSource` | Öğeleri üretir. Girdi dosyasına dokunan **tek** yer. |
-| `Stage<I,O>` | Bir girdiyi işler, çıktıları `Emitter<O>`'a yayar (0, 1 ya da çok çıktı). |
-| `Sink<T>` | Son durak. `open()` / `accept()` / `close()` yaşam döngüsü. |
-| `PipelineBuilder` | Akıcı, tip güvenli kurucu: `from(src).via(stage)...to(sink)`. |
-| `Pipeline` | Kurulmuş hat; `run()` sink'i açar, akıtır, **her durumda** kapatır. |
-| `LogRecord` | Değişmez alan modeli (v2). |
-| `ParserStage` | CLF satırı → `LogRecord`; hatalı satırı atlar ve sayar (v2). |
-| `PredicateFilterStage` | **Yeni.** `Predicate<LogRecord>` doğruysa iletir. |
-| `ProjectionStage` | **Yeni.** Kaydı seçilen alanlara indirger (`ProjectedRecord`). |
-| `FileSink` | **Yeni.** Dosyaya yazar; `close()`'da boşaltıp kapatır. |
-| `ConsoleSink` | v2'den; `LogRecord`'u tek satırda yazar (v3 komut satırında kullanılmıyor). |
-| `CliOptions` / `App` | Argümanları ayrıştırır / aşamaları seçeneklere göre bağlar. |
-| `OrderExperiment` | Aşama sırası deneyi (bkz. ARCHITECTURE.md). |
+| `config.PipelineLoader` | YAML'ı okur, türleri kayıt defterinde arar, parametreleri doğrular, tip uyumunu denetler, hattı kurar. |
+| `config.StageRegistry` / `SourceRegistry` / `SinkRegistry` | Tür adı → fabrika. **`switch` yok**; `META-INF/services` dosyalarından `ServiceLoader` ile yüklenir. |
+| `config.StageFactory` / `SourceFactory` / `SinkFactory` | Bir türün adı, giriş/çıkış tipi ve `create(Params)`. |
+| `config.Params` | Tip denetimli parametre erişimi (`requireString/Int/StringList`), bilinmeyen parametre reddi. |
+| `config.PipelineConfig` | Dosyanın yapısal modeli ve yapı doğrulaması. |
+| `config.MiniYaml` | Bağımlılıksız küçük YAML ayrıştırıcı (alt küme; desteklenmeyeni satır numarasıyla reddeder). |
+| `plugins.*Factory` | Yerleşik türler: `file` (kaynak), `parse`, `filter`, `project`, `file` / `console` (sink). |
+| `PipelineBuilder`, `Pipeline`, aşamalar | v3'ten, **değişmedi**. Yükleyici `PipelineBuilder`'ın bir istemcisidir. |
 
-### Bu hafta ne değişti? (v2 → v3)
+**Yeni bir aşama türü eklemek:** `StageFactory` uygulayan bir sınıf yaz + sınıf adını
+`src/main/resources/META-INF/services/edu.logflow.config.StageFactory` dosyasına bir satır olarak ekle.
+Mevcut hiçbir dosya değişmez. Yeni bir **hat** için ise yalnızca yeni bir `.yaml` yazılır.
 
-- **Yeni dosyalar:** `PredicateFilterStage`, `ProjectionStage`, `ProjectedRecord`, `FileSink`,
-  `PipelineBuilder`, `CliOptions`, `App`, `OrderExperiment`, `ARCHITECTURE.md` ve testler.
-- **Değişen mevcut dosyalar:** `Sink` (yaşam döngüsü kancaları eklendi, varsayılan gövdeleri boş),
-  `Pipeline` (kurucu mantık `PipelineBuilder`'a taşındı), `LineSource` → `FileLineSource`
-  (yeniden adlandırma), `Main` (artık `App`'e devrediyor).
-- **Değişmeyen:** `Emitter`, `Stage`, `Source`, `LogRecord`, `ParserStage`, `ConsoleSink`.
+### Bu hafta ne değişti? (v3 → v4)
+
+- **Yeni:** `config/` paketi (yükleyici, kayıt defterleri, fabrika arayüzleri, `Params`, `PipelineConfig`,
+  `MiniYaml`, `ConfigException`, `LoadedPipeline`), `plugins/` paketi (6 yerleşik fabrika),
+  `Summarizing`, `META-INF/services` dosyaları, `configs/` (3 çalışan + 7 hatalı örnek), yeni testler.
+- **Değişen mevcut dosyalar:** `App` (`--config` kipi), `CliOptions` (`--config`, `--dry-run`),
+  `FileSink` (eksik üst dizinleri oluşturur: `out/errors.txt`), `ParserStage` (`Summarizing` uygular: özet
+  satırını yükleyici toplayabilsin), `pom.xml` (sürüm), `.gitignore` (`out/`).
+- **Değişmeyen:** `PipelineBuilder`, `Pipeline`, `Sink`, `Stage`, `Emitter`, `Source`, `FileLineSource`,
+  `PredicateFilterStage`, `ProjectionStage`, `ProjectedRecord`, `LogRecord`, `ConsoleSink`, `Main`.
   Ayrıntı: [CHANGELOG.md](CHANGELOG.md).
 
 ### Tasarım kararları
 
-- **Aşamalar tek sorumluluklu ve ~40 kod satırının altında** (23 / 39 / 35).
-- **Filtre ve projeksiyon aynı mimari öğedir** (ikisi de `Stage`); fark yalnızca ne yaydıklarıdır.
-- **Önce filtre, sonra projeksiyon.** 4,3 kat daha az iş yapar ve projeksiyonun attığı alana
-  filtrenin bağımlı olması sorununu ortadan kaldırır (ARCHITECTURE.md, bölüm 7.3).
-- **Sink'in `close()`'u süs değil:** kapatılmayan `FileSink` arabellekteki veriyi sessizce kaybeder
-  (`FileSinkTest` bunu gösterir); bu yüzden hat `close()`'u hata olsa bile çağırır.
-- **Bilinen sınırlama:** hatalı satırlar hâlâ yalnızca atlanır ve sayılır; nedenleri ve ayrı
-  kanal 5. haftada gelecek.
+- **Tanım ≠ gerçekleştirim.** YAML "ne"yi söyler; Java sınıfları "nasıl"ı bilir; aşamalar YAML'dan habersizdir.
+- **Tip denetimi yüklemede.** v3'te derleyici denetliyordu; topoloji dosyaya taşınınca aynı kuralı
+  yükleyici çalışma başlamadan uygular.
+- **Sessizce yok sayma yok.** Bilinmeyen anahtar, bilinmeyen parametre, yinelenen tür kaydı hata verir.
+- **Bilinen sınırlamalar:** topoloji doğrusal; "bant genişliği" yapılandırması veri çıkarımı yapar
+  (istemci başına *toplam* için durumlu aşama gerekir); hatalı veri satırları hâlâ yalnızca sayılır (5. hafta).
 
 ## Testler
 
 JUnit 5, `mvn test`. Kapsama raporu: `target/site/jacoco/index.html`.
 
-- `PredicateFilterStageTest`, `ProjectionStageTest`, `FileSinkTest` — her yeni aşama için ayrı testler.
-- `PipelineBuilderTest` — tip güvenli birleştirme, `open → accept* → close` sırası, hata durumunda `close()`.
-- `CliOptionsTest` — argüman ayrıştırma ve hatalı girdi.
-- `IntegrationTest` — küçük fixture üzerinde 3 aşamalı hat çalışır ve **çıktı dosyasının içeriği** doğrulanır;
-  ayrıca komut satırı yolu (`App.run`) uçtan uca denenir.
-- v2 testleri (`ParserStageTest`, `LogRecordTest`, `ConsoleSinkTest`, `PipelineTest`) duruyor.
-
-Aşama testleri dosya sistemine dokunmaz: `CollectingEmitter` aşamanın yaydığı her şeyi toplar.
-Yalnızca `FileSink` ve uçtan uca testler geçici dizin (`@TempDir`) kullanır.
-
-## Deneyi tekrarlamak
-
-```bash
-mvn -q package -DskipTests
-java -Xmx2g -cp target/classes edu.logflow.OrderExperiment
-```
+- `config/PipelineLoaderTest` — geçerli yapılandırma, bilinmeyen aşama türü, eksik parametre, yanlış tipte
+  parametre, boş hat (istenen 5 durum) + tip uyuşmazlığı, yazım hatası, eksik dosya, bozuk YAML.
+- `config/RegistryTest` — `ServiceLoader` keşfi, mevcut dosyalara dokunmadan yeni tür ekleme, çift kayıt reddi.
+- `config/MiniYamlTest` — desteklenen YAML alt kümesi ve satır numaralı hatalar.
+- `ConfigIntegrationTest` — gerçek `configs/*.yaml` dosyalarıyla uçtan uca; **aynı kodla üç yapılandırma
+  üç farklı çıktı** verir; `configs/invalid/` altındaki 7 örneğin hepsi çıkış kodu 2 verir ve dosya yazmaz.
+- v3 testleri (aşamalar, `PipelineBuilder`, `FileSink`, `IntegrationTest`...) duruyor.
 
 ## Dizin yapısı
 
 ```
-data/access-small.log        örnek günlük
-src/main/java/edu/logflow/   Emitter, Stage, Sink, Source, FileLineSource, Pipeline, PipelineBuilder,
-                             LogRecord, ParserStage, PredicateFilterStage, ProjectionStage,
-                             ProjectedRecord, FileSink, ConsoleSink, CliOptions, App, Main,
-                             OrderExperiment
-src/test/java/edu/logflow/   CollectingEmitter ve her sınıfın testi, IntegrationTest
+configs/                     error-report, api-traffic, bandwidth-by-client (.yaml)
+configs/invalid/             7 hatalı örnek (README'deki iletilerin kaynağı)
+data/access-small.log        örnek günlük (14 geçerli + 4 bozuk satır)
+src/main/java/edu/logflow/   çekirdek: Source, Stage, Sink, Emitter, Pipeline, PipelineBuilder, LogRecord,
+                             ParserStage, PredicateFilterStage, ProjectionStage, FileSink, ConsoleSink, App ...
+src/main/java/edu/logflow/config/    yükleyici, kayıt defterleri, fabrika arayüzleri, MiniYaml
+src/main/java/edu/logflow/plugins/   yerleşik fabrikalar
+src/main/resources/META-INF/services/ tür kayıtları (ServiceLoader)
 ARCHITECTURE.md, CHANGELOG.md, README.md
 logflow, logflow.bat         başlatıcı betikler
 ```

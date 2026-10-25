@@ -1,0 +1,3 @@
+edu.logflow.plugins.ParseStageFactory
+edu.logflow.plugins.FilterStageFactory
+edu.logflow.plugins.ProjectStageFactory

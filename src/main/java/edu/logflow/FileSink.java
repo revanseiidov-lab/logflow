@@ -10,7 +10,7 @@ import java.nio.file.Path;
 /**
  * Projeksiyonlu kayıtları bir dosyaya yazar, kayıt başına bir satır.
  *
- * <p>Yaşam döngüsü: dosya {@link #open()}'da açılır, {@link #close()}'da boşaltılıp (flush) kapatılır.
+ * <p>Yaşam döngüsü: dosya (ve eksik üst dizinler) {@link #open()}'da açılır, {@link #close()}'da boşaltılıp (flush) kapatılır.
  * {@code close()} çağrılmazsa arabellekteki (buffered) veri dosyaya hiç ulaşmayabilir; hata
  * vermeden kaybolur. Bu yüzden işlem hattı close()'u hata olsa bile çağırır.
  */
@@ -26,6 +26,10 @@ public final class FileSink implements Sink<ProjectedRecord> {
 
     @Override
     public void open() throws IOException {
+        Path parent = file.toAbsolutePath().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);         // "out/errors.txt" için out/ yoksa oluşturulur
+        }
         writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
     }
 

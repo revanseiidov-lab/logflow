@@ -56,4 +56,24 @@ class CliOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"a.log", "--since", "yesterday"}));
         assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"a.log", "--bogus", "1"}));
     }
+
+    @Test
+    void parsesConfigAndDryRun() {
+        CliOptions o = CliOptions.parse(new String[] {"--config", "configs/error-report.yaml", "--dry-run"});
+
+        assertEquals(Path.of("configs/error-report.yaml"), o.config);
+        assertEquals(true, o.dryRun);
+        assertEquals(null, o.input);
+    }
+
+    @Test
+    void configExcludesDirectOptionsAndDryRunNeedsConfig() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[] {"--config", "c.yaml", "--min-status", "400"}));
+        assertThrows(IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[] {"--config", "c.yaml", "in.log"}));
+        assertThrows(IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[] {"in.log", "--dry-run"}));
+        assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[] {"--config"}));
+    }
 }

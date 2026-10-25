@@ -1,0 +1,21 @@
+# API trafigi veri cikarimi: yalnizca /api ile baslayan yollar.
+# Calistirma: ./logflow --config configs/api-traffic.yaml
+pipeline:
+  name: api-traffic
+
+  source:
+    type: file
+    params: { path: data/access-small.log }
+
+  stages:
+    - type: parse
+
+    - type: filter
+      params: { field: path, op: startsWith, value: /api }
+
+    - type: project
+      params: { fields: [timestamp, method, path, status] }
+
+  sink:
+    type: file
+    params: { path: out/api-traffic.txt }

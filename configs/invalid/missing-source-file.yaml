@@ -1,0 +1,7 @@
+pipeline:
+  source: { type: file, params: { path: data/yok.log } }
+  stages:
+    - type: parse
+    - type: project
+      params: { fields: [status] }
+  sink: { type: file, params: { path: out/x.txt } }

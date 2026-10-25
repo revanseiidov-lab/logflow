@@ -1,0 +1,9 @@
+pipeline:
+  source: { type: file, params: { path: data/access-small.log } }
+  stages:
+    - type: parse
+    - type: filter
+      params: { op: ">=", value: 400 }
+    - type: project
+      params: { fields: [status] }
+  sink: { type: file, params: { path: out/x.txt } }

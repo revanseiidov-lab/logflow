@@ -80,8 +80,22 @@ class FileSinkTest {
     }
 
     @Test
-    void openFailsWhenDirectoryDoesNotExist(@TempDir Path dir) {
-        FileSink sink = new FileSink(dir.resolve("missing-dir").resolve("out.txt"));
+    void openCreatesMissingParentDirectories(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("a").resolve("b").resolve("out.txt");
+        FileSink sink = new FileSink(file);
+
+        sink.open();
+        sink.accept(rec("200", "/a"));
+        sink.close();
+
+        assertEquals(1, Files.readAllLines(file).size());
+    }
+
+    @Test
+    void openFailsWhenParentIsAFile(@TempDir Path dir) throws IOException {
+        Path blocker = dir.resolve("blocker");
+        Files.writeString(blocker, "i am a file");
+        FileSink sink = new FileSink(blocker.resolve("out.txt"));
 
         assertThrows(IOException.class, sink::open);
     }

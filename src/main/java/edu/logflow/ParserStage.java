@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * fırlatılmaz, hata nedeni kaydedilmez. Hataların doğru ele alınması (neden, ayrı kanal, yeniden
  * deneme) 5. haftada gelecektir; mimari katman katman inşa edilir. Boş satır da bu hafta hatalı sayılır.
  */
-public final class ParserStage implements Stage<String, LogRecord> {
+public final class ParserStage implements Stage<String, LogRecord>, Summarizing {
 
     private static final Pattern CLF = Pattern.compile(
             "^(\\S+)\\s+\\S+\\s+\\S+\\s+\\[([^\\]]+)\\]\\s+"      // ip, kimlik, kullanici, [zaman]
@@ -46,6 +46,11 @@ public final class ParserStage implements Stage<String, LogRecord> {
     /** Atlanan (ayrıştırılamayan) satır sayısı. */
     public long malformedCount() {
         return malformedCount;
+    }
+
+    @Override
+    public String summary() {
+        return "Hatali (atlanan) satir sayisi: " + malformedCount;
     }
 
     private static LogRecord parse(String line) {

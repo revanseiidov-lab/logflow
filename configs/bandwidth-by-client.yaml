@@ -1,0 +1,23 @@
+# Istemci bazinda bant genisligi veri cikarimi: her istemcinin her yanitinda kac bayt gonderildi.
+# Gonderilen veri olmayan (0 bayt) yanitlar elenir. Istemci basina toplama bu hafta yok
+# (durumlu bir asama gerekir); cikti, toplama icin girdi olarak kullanilabilir.
+# Calistirma: ./logflow --config configs/bandwidth-by-client.yaml
+pipeline:
+  name: bandwidth-by-client
+
+  source:
+    type: file
+    params: { path: data/access-small.log }
+
+  stages:
+    - type: parse
+
+    - type: filter
+      params: { field: bytes, op: ">", value: 0 }
+
+    - type: project
+      params: { fields: [clientIp, bytes] }
+
+  sink:
+    type: file
+    params: { path: out/bandwidth-by-client.txt }
