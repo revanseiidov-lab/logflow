@@ -1,7 +1,161 @@
 # LogFlow Mimarisi
 
-Bu belge iki artımı kapsar: **Artım 4** (yapılandırma odaklı birleştirme ve aşama kaydı, en güncel) ve
-**Artım 3** (bileşim, filtreleme, projeksiyon; aşama sırası deneyi). Artım 3 bölümü aşağıda aynen durur.
+Bu belge üç artımı kapsar: **Artım 5** (hata yönetimi, doğrulama, dead-letter; en güncel), **Artım 4**
+(yapılandırma odaklı birleştirme ve aşama kaydı) ve **Artım 3** (bileşim, filtreleme, projeksiyon; aşama sırası
+deneyi). Önceki artımların bölümleri aşağıda aynen durur.
+
+## Artım 5 — Hata Yönetimi, Doğrulama ve Dead-Letter
+
+**Ana fikir:** v4'e kadar bozuk satır *sessizce* atlanıyordu (yalnızca bir sayı). Üretim hattında bu kabul edilemez:
+bozuk veri **bilinmeli, sayılmalı, gerekirse saklanmalı** ve hiçbir kayıt **sessizce kaybolmamalı**. v5 bunu üç parçayla
+sağlar: bir hata modeli, aşama başına bir politika ve çalışma sonunda bir **mutabakat** (reconciliation) denetimi.
+
+```
+raw-file ─RawLine─▶ decode ─String─▶ parse ─LogRecord─▶ validate ─▶ filter* ─▶ project ─▶ sink (file)
+   │                  │                │                   │                                   │
+   └─ okunan sayaç    └──────── hata ──┴───────────────────┘                                   └─ yazılan sayaç
+                                       ▼
+                                  ErrorRouter ──skip──▶ sayaç
+                                       │──dead-letter──▶ JSONL dosyası (nedenle birlikte)
+                                       └──fail-fast────▶ AbortRun ─▶ ManagedRun ─▶ çıkış kodu 1
+```
+
+### 1. Hata modeli: iki tür, iki sorumluluk
+
+| Tür | Anlamı | Sonuç |
+|---|---|---|
+| `StageException` (+ `ErrorType`) | **Tek bir kayıt**, **tek aşamada** işlenemedi. Kurtarılabilir. | Politika uygulanır, hat devam eder. |
+| `PipelineException` | Hat **devam edemez**: girdi okunamıyor, dead-letter yazılamıyor. | Çalışma durur (`FAILED`, çıkış kodu 1). |
+
+Ayrım sorusu: *"Bu kaydı atlayıp devam etmek anlamlı mı?"* Evet → `StageException`. Hayır → `PipelineException`.
+Dead-letter hedefinin yazılamaması bilerek ikinci gruptadır: kanıt sessizce kaybolacaksa "atla" seçeneği yoktur.
+
+`ErrorType`, hatanın nerede/neden olduğunu söyleyen kapalı bir sözlüktür: `READ_ENCODING`, `READ_OVERSIZE`,
+`PARSE_MALFORMED`, `PARSE_TIMESTAMP`, `PARSE_NUMBER`, `VALIDATION_REQUIRED`, `VALIDATION_IP`, `VALIDATION_RANGE`,
+`VALIDATION_TIMESTAMP`, `SINK_IO`, `UNEXPECTED`. Özetler ve dead-letter kayıtları bu adları kullanır; metin ayrıştırarak
+"şu hata mıydı?" diye bakmak gerekmez.
+
+**Neden istisna (exception), dönüş değeri değil?** `Stage` arayüzü v1'den beri `void process(I, Emitter<O>)`.
+`StageException` denetlenmeyen (unchecked) olduğundan arayüz, `PipelineBuilder`, `PredicateFilterStage`,
+`ProjectionStage` **değişmedi**. Alternatif (`Result<T>` ya da `Emitter`'a ikinci bir hata kanalı) her aşamanın imzasını
+bozardı.
+
+### 2. Aşama fırlatır, yönlendirici karar verir
+
+Bir aşama kaydın akıbetini bilmez: yalnızca `throw new StageException(tip, neden)` der. Akıbet **yapılandırmadadır**
+(`on-error:`) ve `ErrorRouter` tarafından uygulanır. Böylece aynı `parse` aşaması bir hatta "dur", başka bir hatta
+"dead-letter" olarak çalışır; aşama kodu değişmez. Bu, v4'teki "tanım ≠ gerçekleştirim" ilkesinin hata tarafıdır.
+
+| Politika | Davranış | Ne zaman |
+|---|---|---|
+| `fail-fast` | `AbortRun` fırlatır, çalışma `ABORTED` biter | Veri bütünlüğü her şeyden önemli (ör. finansal kayıt) |
+| `skip` | Kaydı atar ve **sayar** (tür ve aşama bazında) | Kayıp tolere edilir, ama bilinmelidir |
+| `dead-letter` | Kaydı **nedeniyle birlikte** ikincil dosyaya yazar | Sonradan incelenecek/yeniden oynatılacak veri |
+| `retry(n)` + `fallback` | Aşamayı n kez daha dener; tükenirse `fallback` politikası | **Yalnızca sink** (geçici G/Ç hatası) |
+
+Varsayılanlar: aşamalar `skip` (v4 davranışı korunur ama artık sayılır), sink `fail-fast` (çıktı sessizce kaybolmaz).
+
+**`retry` neden yalnızca sink'te?** Ayrıştırma ve doğrulama hataları *deterministiktir*: aynı satır her denemede aynı
+hatayı verir, yeniden denemek yalnızca zaman harcar. Yazma hatası ise geçici olabilir (disk dolu, ağ). Yükleyici
+`retry`'ı bir aşamada reddeder ve nedenini söyler (`configs/invalid/retry-on-stage.yaml`).
+
+### 3. Dekoratörler: çekirdek değişmeden hata yönetimi
+
+`GuardedStage`, `GuardedSink`, `TrackingSource` mevcut bileşeni **sarar** (decorator); `PipelineLoader` her bileşeni
+kurarken sarar. İki ince nokta:
+
+- **Alt akış hatası yukarıya yazılmaz.** Aşama A, `out.emit(x)` ile aşama B'yi çağırır; B'nin hatası çağrı yığınında A'nın
+  içinden geçer. `GuardedStage` emit'i bir taşıyıcıyla sarar, böylece B'nin hatası A'nın hatası sayılmaz
+  (`ErrorRoutingTest.failuresDownstreamAreNotAttributedToTheUpstreamStage`).
+- **Beklenmeyen istisna da kayıt hatasıdır.** `NullPointerException` gibi bir bug tüm çalışmayı çökertmez; `UNEXPECTED`
+  olarak aynı politikadan geçer ve dead-letter'da görünür.
+
+Kural: bir aşama kaydı yaymadan **önce** fırlatmalıdır (yarım çıktı olmaz). `ParserStage` bunu sağlar.
+
+### 4. Okuma hataları kayıt düzeyinde: `raw-file` + `decode`
+
+v4'ün `file` kaynağı dosyayı katı UTF-8 ile satır satır okur. İlk geçersiz bayt dizisinde **tüm çalışma**
+`MalformedInputException` ile durur: tek satır yüzünden milyonlarca satır kaybolur (`ChaosTest.legacyFileSourceStops...`
+bunu gösterir). v5'te okuma ikiye bölündü:
+
+- `raw-file` (`RawLineSource`): **baytları** satırlara böler. Kodlamayı çözmez. `maxLineBytes`'ı aşan satırı
+  `oversize` işaretler ve belleğe yalnızca bir ön ekini alır (100 KiB'lık satır bellek tüketmez).
+- `decode` (`DecodeStage`): **katı** UTF-8. Geçersiz diziyi sessizce `U+FFFD` yapıp veriyi bozmak yerine kaydı
+  `READ_ENCODING` ile reddeder; dead-letter'a özgün baytlar **Base64** olarak konur (kanıt bozulmaz).
+
+Eski `file` kaynağı kalır (v4 yapılandırmaları çalışmaya devam eder); fark dokümante edilmiştir.
+
+### 5. Doğrulama: biçim ≠ anlam
+
+`parse` "satır CLF mi?" sorusunu yanıtlar. `validate` (`ValidationStage`) "değerler makul mü?" sorusunu yanıtlar ve
+kuralları **bildirimli** olarak yapılandırmadan alır: `required`, `validIp`, `minStatus/maxStatus`, `minBytes/maxBytes`,
+`notBefore/notAfter`. 1970 ve 2099 tarihli satırlar sözdizimce geçerlidir; "makul aralık" bir **iş kuralıdır** ve
+kodda sabitlenmez, hat başına belirlenir. IP denetimi DNS çözümlemesi yapmaz (ağ erişimi, yavaşlık ve yan etki yok):
+yalnızca sözdizimi.
+
+### 6. Mutabakat: "kayıp yok" bir iddia değil, denetimdir
+
+`RunSummary`, okunan her kaydın akıbetini **tam bir sayaca** yazar:
+
+```
+okunan = yazılan + filtrelenen + atlanan + dead-letter + durduran
+```
+
+- `okunan`: `TrackingSource` (kaynakta). `yazılan`: `GuardedSink` (başarılı yazmada). Diğerleri: yönlendirici ve filtre.
+- Denklem tutmuyorsa kayıt **sessizce kaybolmuştur**: durum `MISMATCH`, çıkış kodu **3**
+  (`ManagedRunTest.silentlyDroppedRecordIsDetectedAsMismatchWithExitThree`).
+- **Filtre bildirimi.** Hiçbir şey yaymayan bir aşama ya filtredir ya da hatalıdır; ayırt etmek için fabrika
+  `filtering()` bildirir. Filtre olmayan bir aşama sessizce kayıt yutarsa mutabakat bunu yakalar. Bu yüzden sayaçlar
+  kendi kendini doğrulayan bir sözleşmedir, süs değil.
+- Durdurma da hesapta: `fail-fast` ile kesilen çalışmada durduran kayıt `durduran`a yazılır; okunmamış satırlar
+  `okunan`a girmez, denklem yine tutar.
+
+### 7. Çıkış kodları ve özet
+
+| Kod | Durum | Anlam |
+|---|---|---|
+| 0 | `OK` | Bitti, mutabakat tamam |
+| 1 | `ABORTED` / `FAILED` | `fail-fast` durdurdu ya da G/Ç hatası (özet nedeni yazar) |
+| 2 | — | Hatalı argüman ya da yapılandırma (çalışma **başlamadan**; v4'ten beri) |
+| 3 | `MISMATCH` | Kayıt kaybı tespit edildi |
+
+Özet `stderr`'e yazılır (stdout veriye ayrılmıştır, borulanabilir). `ManagedRun` dışarıya istisna sızdırmaz; dead-letter
+hedefini açar ve **her durumda** kapatır.
+
+### 8. Yapılandırma
+
+```yaml
+stages:
+  - type: decode
+    on-error: dead-letter
+  - type: validate
+    params: { validIp: true, notBefore: "2000-01-01T00:00:00Z" }
+    on-error: skip
+sink:
+  type: file
+  params: { path: out/valid.txt }
+  on-error: retry(3)
+  fallback: dead-letter
+errors:
+  dead-letter: { path: out/rejected.jsonl }
+```
+
+Yükleme sırasında (tek satır işlenmeden) denetlenenler: bilinmeyen politika; aşamada `retry`; `fallback` retry'sız;
+`fallback: retry`; `dead-letter` politikası var ama `errors.dead-letter` yok; kaynakta `on-error`.
+
+### 9. Dead-letter kaydı
+
+`out/rejected.jsonl`, satır başına bir JSON nesnesi: `timestamp, stage, errorType, message, line, rawInput,
+rawTruncated` ve (okuma hatalarında) `rawBase64`. `rawInput` en çok 1024 karakter, `rawBase64` en çok 4096 bayt:
+dead-letter dosyası, 100 KiB'lık bir satır yüzünden şişmez. Dosya, hata olmasa bile oluşturulur (boş dosya = "hata yok"
+kanıtı).
+
+### 10. Sınırlamalar
+
+- Aşamalar kayıt başına 1→0/1 varsayar. 1→n yayan bir aşama için mutabakat denklemi genişletilmelidir.
+- Yeniden oynatma (`replay`: dead-letter'ı yeniden hatta vermek) yok; JSONL biçimi bunu mümkün kılar.
+- Hat tek iş parçacıklıdır: "şu anki satır" bağlamı yönlendiricide tutulur. Paralel aşama bunu kaydın içine taşımayı gerektirir.
+- `console` sink'i `ProjectedRecord` bekler; `project` aşaması olmadan kullanılamaz (v4'ten beri).
 
 ## Artım 4 — Yapılandırma Odaklı Birleştirme ve Aşama Kaydı
 

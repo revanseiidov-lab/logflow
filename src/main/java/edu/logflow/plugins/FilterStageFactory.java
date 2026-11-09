@@ -70,6 +70,11 @@ public final class FilterStageFactory implements StageFactory {
     }
 
     @Override
+    public boolean filtering() {
+        return true;
+    }
+
+    @Override
     public String example() {
         return "{ field: status, op: \">=\", value: 400 }";
     }

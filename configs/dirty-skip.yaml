@@ -1,0 +1,22 @@
+# v5: ayni dosya, ama gecersiz kayitlar yalnizca atlanir ve SAYILIR (neden ozette turlere gore gorunur).
+# Calistirma: ./logflow --config configs/dirty-skip.yaml
+pipeline:
+  name: dirty-skip
+
+  source:
+    type: raw-file
+    params: { path: data/access-dirty.log }
+
+  stages:
+    - type: decode
+      on-error: skip
+    - type: parse
+      on-error: skip
+    - type: validate
+      params: { notBefore: "2000-01-01T00:00:00Z", notAfter: "2030-01-01T00:00:00Z" }
+      on-error: skip
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+
+  sink:
+    type: console

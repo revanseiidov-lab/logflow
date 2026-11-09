@@ -55,7 +55,8 @@ class ConfigIntegrationTest {
                 "timestamp=2023-10-10T10:57:30Z\tclientIp=172.16.4.2\tstatus=404\tpath=/missing/page",
                 "timestamp=2023-10-10T11:00:00Z\tclientIp=203.0.113.7\tstatus=500\tpath=/api/items/42"),
                 Files.readAllLines(tmp.resolve("errors.txt")));
-        assertTrue(r.err.contains("Hatali (atlanan) satir sayisi: 4"));
+        assertTrue(r.err.contains("atlanan (skip)  : 4"), r.err);
+        assertTrue(r.err.contains("mutabakat       : TAMAM"), r.err);
     }
 
     @Test
@@ -88,8 +89,9 @@ class ConfigIntegrationTest {
         Result r = run("--config", config.toString(), "--dry-run");
 
         assertEquals(0, r.exit);
-        assertEquals("Yapilandirma gecerli: error-report: file -> parse -> filter -> project -> file",
-                r.out.strip());
+        assertTrue(r.out.startsWith("Yapilandirma gecerli: error-report: file -> parse -> filter -> project -> file\n"),
+                r.out);
+        assertTrue(r.out.contains("hata politikasi - parse: skip"), r.out);
         assertEquals(false, Files.exists(tmp.resolve("errors.txt")));
     }
 

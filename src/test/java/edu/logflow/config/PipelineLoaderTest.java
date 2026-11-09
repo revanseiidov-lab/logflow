@@ -1,5 +1,6 @@
 package edu.logflow.config;
 
+import edu.logflow.error.RunSummary;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,7 +62,7 @@ class PipelineLoaderTest {
         Path out = dir.resolve("out").resolve("errors.txt");
 
         LoadedPipeline loaded = loader.loadFromText(yaml(log(dir), out, ERROR_STAGES), "test.yaml", "x");
-        loaded.pipeline().run();
+        RunSummary summary = loaded.run();
 
         assertEquals("test", loaded.name());
         assertEquals(List.of("file", "parse", "filter", "project", "file"), loaded.steps());
@@ -71,7 +72,8 @@ class PipelineLoaderTest {
                 "clientIp=10.0.0.3\tstatus=404\tpath=/index.html",
                 "clientIp=10.0.0.4\tstatus=500\tpath=/api/items"),
                 Files.readAllLines(out));
-        assertEquals("Hatali (atlanan) satir sayisi: 1", loaded.summaries().get(0).summary());
+        assertEquals(1, summary.skippedCount());
+        assertEquals(RunSummary.Status.OK, summary.status());
     }
 
     @Test
@@ -293,7 +295,7 @@ class PipelineLoaderTest {
                 + "  stages:\n    - type: parse\n    - type: project\n      params: { fields: [status] }\n"
                 + "  sink: { type: console }\n";
 
-        custom.loadFromText(text, "t.yaml", "t").pipeline().run();
+        custom.loadFromText(text, "t.yaml", "t").run();
 
         assertEquals("status=200\nstatus=401\nstatus=404\nstatus=500\n",
                 buffer.toString(StandardCharsets.UTF_8).replace("\r\n", "\n"));
@@ -324,7 +326,7 @@ class PipelineLoaderTest {
         Path out = dir.resolve("run-" + System.nanoTime() + ".txt");
         String stages = "    - type: parse\n" + filters
                 + "    - type: project\n      params: { fields: [status] }\n";
-        loader.loadFromText(yaml(in, out, stages), "t.yaml", "t").pipeline().run();
+        loader.loadFromText(yaml(in, out, stages), "t.yaml", "t").run();
         return Files.readAllLines(out);
     }
 }

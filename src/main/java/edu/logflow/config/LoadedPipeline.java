@@ -1,20 +1,27 @@
 package edu.logflow.config;
 
-import edu.logflow.Pipeline;
-import edu.logflow.Summarizing;
+import edu.logflow.error.ManagedRun;
+import edu.logflow.error.RunSummary;
+
 import java.util.List;
 
 /**
- * Yapılandırmadan kurulmuş, çalıştırılmaya hazır hat.
+ * Yapılandırmadan kurulmuş, çalıştırılmaya hazır hat (hata yönetimiyle sarılmış). Tek kullanımlıktır:
+ * sayaçlar çalıştırmaya aittir.
  *
- * @param name      hat adı ({@code pipeline.name})
- * @param pipeline  çalıştırılabilir hat
- * @param steps     bileşen türleri sırayla: kaynak, aşamalar, sink (ör. file, parse, filter, project, file)
- * @param summaries çalışma sonunda yazdırılacak özet kaynakları (ör. ayrıştırıcının atlanan satır sayısı)
+ * @param name     hat adı ({@code pipeline.name})
+ * @param managed  çalıştırıcı: hattı çalıştırır, hataları yönlendirir, mutabakatı denetler
+ * @param steps    bileşen türleri sırayla: kaynak, aşamalar, sink (ör. raw-file, decode, parse, file)
+ * @param policies bileşen başına hata politikası açıklamaları ({@code --dry-run} bunları gösterir)
  */
-public record LoadedPipeline(String name, Pipeline pipeline, List<String> steps, List<Summarizing> summaries) {
+public record LoadedPipeline(String name, ManagedRun managed, List<String> steps, List<String> policies) {
 
-    /** {@code error-report: file -> parse -> filter -> project -> file} */
+    /** Hattı çalıştırır; istisna sızdırmaz, sonucu {@link RunSummary} olarak verir. */
+    public RunSummary run() {
+        return managed.run();
+    }
+
+    /** {@code error-report: raw-file -> decode -> parse -> filter -> project -> file} */
     public String describe() {
         return name + ": " + String.join(" -> ", steps);
     }

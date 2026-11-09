@@ -36,12 +36,12 @@ class RegistryTest {
 
     @Test
     void defaultStageRegistryIsDiscoveredFromServiceFiles() {
-        assertEquals(Set.of("parse", "filter", "project"), StageRegistry.discover().types());
+        assertEquals(Set.of("decode", "parse", "filter", "validate", "project"), StageRegistry.discover().types());
     }
 
     @Test
     void defaultSourceAndSinkRegistriesAreDiscovered() {
-        assertEquals(Set.of("file"), SourceRegistry.discover().types());
+        assertEquals(Set.of("file", "raw-file"), SourceRegistry.discover().types());
         assertEquals(Set.of("file", "console"), SinkRegistry.discover().types());
     }
 
@@ -51,7 +51,7 @@ class RegistryTest {
 
         registry.register(new UpperCaseStageFactory());
 
-        assertEquals(Set.of("parse", "filter", "project", "upper"), registry.types());
+        assertEquals(Set.of("decode", "parse", "filter", "validate", "project", "upper"), registry.types());
         assertEquals("upper", registry.get("upper", "stages[0]").type());
     }
 
@@ -75,7 +75,7 @@ class RegistryTest {
         assertTrue(e.getMessage().startsWith("stages[2]: bilinmeyen asama"));
         assertTrue(e.getMessage().contains("'fliter'"));
         assertTrue(e.getMessage().contains("Bunu mu demek istediniz: 'filter'?"));
-        assertTrue(e.getMessage().contains("Kullanilabilir turler: filter, parse, project"));
+        assertTrue(e.getMessage().contains("Kullanilabilir turler: decode, filter, parse, project, validate"));
     }
 
     @Test

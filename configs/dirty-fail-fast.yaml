@@ -1,0 +1,19 @@
+# v5: veri butunlugu her seyden onemliyse: ilk gecersiz kayitta calisma durur (cikis kodu 1).
+# Calistirma: ./logflow --config configs/dirty-fail-fast.yaml
+pipeline:
+  name: dirty-fail-fast
+
+  source:
+    type: raw-file
+    params: { path: data/access-dirty.log }
+
+  stages:
+    - type: decode
+      on-error: fail-fast
+    - type: parse
+      on-error: fail-fast
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+
+  sink:
+    type: console

@@ -1,0 +1,28 @@
+# v5: "kirli" dosyayi bozulmadan isler. Gecersiz kayitlar nedenleriyle birlikte dead-letter dosyasina gider.
+# Calistirma: ./logflow --config configs/dirty-dead-letter.yaml
+pipeline:
+  name: dirty-dead-letter
+
+  source:
+    type: raw-file                      # baytlari okur; kodlama karari decode asamasinda, satir basina verilir
+    params: { path: data/access-dirty.log, maxLineBytes: 65536 }
+
+  stages:
+    - type: decode                      # katı UTF-8: gecersiz bayt dizisi sessizce bozulmaz
+      on-error: dead-letter
+    - type: parse
+      on-error: dead-letter
+    - type: validate                    # bicimce gecerli ama anlamca makul olmayan kayitlar (1970, 2099 ...)
+      params: { validIp: true, required: [path], notBefore: "2000-01-01T00:00:00Z", notAfter: "2030-01-01T00:00:00Z" }
+      on-error: dead-letter
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+
+  sink:
+    type: file
+    params: { path: out/dirty-valid.txt }
+    on-error: retry(3)                  # gecici G/C hatasi: 3 kez daha dene
+    fallback: dead-letter               # yine olmazsa kaydi dead-letter'a yaz
+
+  errors:
+    dead-letter: { path: out/dirty-rejected.jsonl }

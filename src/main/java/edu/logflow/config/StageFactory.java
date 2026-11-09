@@ -24,6 +24,14 @@ public interface StageFactory {
         return null;
     }
 
+    /**
+     * Bu aşama kayıt <b>eler</b> mi (filtre)? Evet ise hiçbir şey yaymayan kayıt "filtrelenen" sayılır; hayır ise
+     * hiçbir şey yaymak sessiz kayıptır ve çalışma sonunda mutabakat bunu yakalar.
+     */
+    default boolean filtering() {
+        return false;
+    }
+
     /** Parametreleri doğrular ve aşamayı kurar. Geçersizse {@link ConfigException} fırlatır. */
     Stage<?, ?> create(Params params);
 }

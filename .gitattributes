@@ -1,0 +1,4 @@
+* text=auto
+data/access-dirty.log -text
+logflow text eol=lf
+*.bat text eol=crlf

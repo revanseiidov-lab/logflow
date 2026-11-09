@@ -1,0 +1,9 @@
+# dead-letter politikasi var ama hedefi (errors.dead-letter) tanimli degil.
+pipeline:
+  source: { type: file, params: { path: data/access-small.log } }
+  stages:
+    - type: parse
+      on-error: dead-letter
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+  sink: { type: console }

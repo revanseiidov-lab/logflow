@@ -1,1 +1,2 @@
 edu.logflow.plugins.FileSourceFactory
+edu.logflow.plugins.RawFileSourceFactory

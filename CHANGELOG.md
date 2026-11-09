@@ -1,5 +1,43 @@
 # Değişiklik Günlüğü (Change Log)
 
+## v5 — Hata Yönetimi, Doğrulama ve Dead-Letter
+
+Bozuk veri artık sessizce yutulmuyor: nedeniyle sınıflanıyor, politikaya göre atlanıyor / dead-letter'a yazılıyor /
+çalışmayı durduruyor, ve çalışma sonunda **hiçbir kaydın kaybolmadığı** denetleniyor.
+
+### Eklenen dosyalar
+- `error/` — `ErrorType`, `StageException`, `PipelineException`, `AbortRun`, `ErrorPolicy`, `FailedRecord`, `ErrorRouter`,
+  `GuardedStage`, `GuardedSink`, `TrackingSource`, `RawLineContext`, `JsonlSink`, `RunSummary`, `ManagedRun`
+- `RawLine.java`, `RawLineSource.java` — bayt düzeyinde satır okuyucu (boyut sınırı, kodlama çözmez)
+- `DecodeStage.java` — katı UTF-8 çözücü; `ValidationStage.java` — bildirimli doğrulama kuralları
+- `plugins/RawFileSourceFactory`, `DecodeStageFactory`, `ValidateStageFactory` (+ `META-INF/services` satırları)
+- `configs/dirty-dead-letter.yaml`, `dirty-skip.yaml`, `dirty-fail-fast.yaml`; `configs/invalid/` altında 4 yeni hatalı örnek
+- `data/access-dirty.log`, `data/access-empty.log`, `data/README.txt` (kasıtlı bozulmuş test verisi), `.gitattributes`
+- Testler: `error/ErrorPolicyTest`, `ErrorRoutingTest`, `GuardedSinkTest`, `ManagedRunTest`, `JsonlSinkTest`,
+  `RawLineSourceTest`, `DecodeStageTest`, `ValidationStageTest`, `ChaosTest`
+- `ARCHITECTURE.md`: Artım 5 bölümü (hata modeli, politikalar, mutabakat, kararların gerekçesi)
+
+### Değiştirilen mevcut dosyalar
+- `ParserStage.java` — hatalı satırı artık sessizce atlamaz, nedenli `StageException` fırlatır; sayaç kaldırıldı
+- `App.java` — hat `ManagedRun` ile çalışır; özet `stderr`'e; çıkış kodları 0/1/2/3 (eski komut satırı kipi de `skip` politikasıyla sarılı)
+- `config/PipelineConfig.java` (`on-error`, `fallback`, `errors.dead-letter`), `PipelineLoader.java` (sarmalama,
+  politika denetimi), `LoadedPipeline.java` (`run()` → `RunSummary`), `Params.java` (isteğe bağlı erişimciler),
+  `StageFactory.java` (`filtering()`), `plugins/FilterStageFactory.java` (`filtering() = true`)
+- Testler yeni davranışa uyarlandı: `ParserStageTest`, `PipelineTest`, `IntegrationTest`, `ConfigIntegrationTest`,
+  `config/PipelineLoaderTest`, `config/RegistryTest`
+- `README.md`, `CHANGELOG.md`, `pom.xml` (sürüm 5.0.0)
+
+### Silinen dosyalar
+- `Summarizing.java` — özeti artık aşama değil `RunSummary` verir (tek doğruluk kaynağı)
+
+### Değişmeyen dosyalar
+`PipelineBuilder`, `Pipeline`, `Stage`, `Source`, `Sink`, `Emitter`, `FileLineSource`, `FileSink`, `ConsoleSink`,
+`PredicateFilterStage`, `ProjectionStage`, `ProjectedRecord`, `LogRecord`, `CliOptions`, `Main`, `config/MiniYaml`
+
+### Davranış değişiklikleri
+- Hatalı satır özeti: `Hatali (atlanan) satir sayisi: N` yerine `Calisma ozeti` bloğu (`atlanan (skip)  : N` ...).
+- Yeni çıkış kodu 3 (kayıt kaybı). 1 hâlâ "çalışma tamamlanmadı", 2 hâlâ "argüman/yapılandırma hatası".
+
 ## v4 — Yapılandırma Odaklı Birleştirme ve Aşama Kaydı
 
 Hattın topolojisi YAML dosyasına taşındı: yeni hat için yeniden derleme gerekmez.

@@ -1,10 +1,11 @@
 # LogFlow — Yazılım Mimarisi Dönem Projesi
 
 Günlük (log) dosyalarını **işlem hattı (pipeline)** mimarisiyle işleyen küçük bir Java uygulaması.
-Bu sürüm: **v4 — Yapılandırma Odaklı Birleştirme ve Aşama Kaydı** (Artım 4).
+Bu sürüm: **v5 — Hata Yönetimi, Doğrulama ve Dead-Letter** (Artım 5).
 
-Ana fikir: hattın *topolojisi* artık Java kodunda değil **YAML dosyasında**. Yeni bir hat için
-**yeniden derleme gerekmez**: aynı `logflow.jar`, farklı yapılandırma dosyasıyla farklı davranır.
+Ana fikirler: hattın *topolojisi* **YAML dosyasında** (v4; yeniden derleme gerekmez) ve bozuk veri **sessizce yutulmaz**
+(v5): her hatalı kayıt nedeniyle sınıflanır, aşamanın politikasına göre atlanır / dead-letter dosyasına yazılır /
+çalışmayı durdurur ve çalışma sonunda hiçbir kaydın kaybolmadığı denetlenir.
 
 Belgeler: [ARCHITECTURE.md](ARCHITECTURE.md) (yapılandırma şeması, kayıt sistemi, hata türleri,
 v3 deneyi) · [CHANGELOG.md](CHANGELOG.md)
@@ -20,6 +21,20 @@ cat out/errors.txt
 ```
 
 Windows: `logflow.bat --config configs\error-report.yaml`
+
+### Kirli veri: v5 demosu
+
+`data/access-dirty.log` kasıtlı bozulmuş 11 satırdır (3 geçerli; kesik, negatif bayt, 1970, 2099, geçersiz UTF-8, 100 KiB'lık satır, yorum).
+
+```bash
+./logflow --config configs/dirty-dead-letter.yaml   # 3 satır yazılır, 8 satır nedenle dead-letter'a gider
+cat out/dirty-rejected.jsonl                        # her kayıt: aşama, hata türü, neden, satır no, özgün metin
+./logflow --config configs/dirty-skip.yaml          # aynı dosya, hatalılar yalnızca atlanır ve sayılır
+./logflow --config configs/dirty-fail-fast.yaml; echo "cikis kodu: $?"   # ilk hatalı kayıtta durur, kod 1
+./logflow --config configs/dirty-dead-letter.yaml --dry-run             # her aşamanın hata politikasını gösterir
+```
+
+Özetin her satırı denetimdir: `okunan = yazılan + filtrelenen + atlanan + dead-letter + durduran`. Tutmuyorsa çıkış kodu 3.
 
 ### Aynı çalıştırılabilir dosya, üç farklı davranış
 
@@ -133,7 +148,8 @@ Hata: --config baska seceneklerle ya da girdi dosyasiyla birlikte kullanilamaz (
 ```
 
 > **Yapılandırma hatası ≠ veri hatası.** Bozuk bir *günlük satırı* yapılandırma hatası değildir:
-> `ParserStage` onu atlar ve sayar (`Hatali (atlanan) satir sayisi: 4`); nedenleri 5. haftanın konusu.
+> Eski `file` kaynağıyla ve varsayılan `skip` politikasıyla bu satırlar atlanır ve **sayılır**
+> (`atlanan (skip)  : 4`); nedenleri ve dead-letter aşağıda.
 
 ## Mimari
 
@@ -158,7 +174,30 @@ YAML ─▶ MiniYaml ─▶ PipelineConfig ─▶ PipelineLoader ─▶ Pipeline
 `src/main/resources/META-INF/services/edu.logflow.config.StageFactory` dosyasına bir satır olarak ekle.
 Mevcut hiçbir dosya değişmez. Yeni bir **hat** için ise yalnızca yeni bir `.yaml` yazılır.
 
-### Bu hafta ne değişti? (v3 → v4)
+### Hata yönetimi (v5)
+
+| Parça | Sorumluluk |
+|---|---|
+| `error.StageException` / `PipelineException` | Tek kaydın hatası (kurtarılabilir) / hattın devam edememesi |
+| `error.ErrorPolicy` | `fail-fast`, `skip`, `dead-letter`, `retry(n)` (+ `fallback`, yalnızca sink) |
+| `error.ErrorRouter` | Politikayı uygular, sayar, dead-letter'a yazar; aşamalar yalnızca fırlatır |
+| `error.GuardedStage` / `GuardedSink` / `TrackingSource` | Mevcut bileşenleri sarar: çekirdek arayüzler değişmedi |
+| `error.RunSummary` / `ManagedRun` | Mutabakat, durum ve çıkış kodu (0/1/2/3) |
+| `RawLineSource` + `DecodeStage` | Bayt oku, katı UTF-8 çöz: geçersiz satır yalnızca kendi kaydını kaybettirir |
+| `ValidationStage` | Bildirimli kurallar: zorunlu alan, IP, aralık, makul zaman damgası |
+
+Ayrıntılı gerekçeler: [ARCHITECTURE.md](ARCHITECTURE.md), Artım 5.
+
+### Bu hafta ne değişti? (v4 → v5)
+
+- **Yeni:** `error/` paketi (14 sınıf), `RawLine`, `RawLineSource`, `DecodeStage`, `ValidationStage`, 3 fabrika,
+  3 kirli-veri yapılandırması + 4 hatalı örnek, `data/access-dirty.log` / `access-empty.log`, yeni testler (`ChaosTest` dahil).
+- **Değişen:** `ParserStage` (hatayı fırlatır, sayaç yok), `App` (`ManagedRun`, özet `stderr`'e, çıkış kodu 3),
+  `PipelineConfig` / `PipelineLoader` / `LoadedPipeline` / `Params` / `StageFactory` (politika desteği).
+- **Silinen:** `Summarizing` (özeti artık `RunSummary` verir).
+- **Değişmeyen:** `PipelineBuilder`, `Pipeline`, `Stage`, `Source`, `Sink`, `Emitter`, filtre ve projeksiyon aşamaları.
+
+### Önceki hafta (v3 → v4)
 
 - **Yeni:** `config/` paketi (yükleyici, kayıt defterleri, fabrika arayüzleri, `Params`, `PipelineConfig`,
   `MiniYaml`, `ConfigException`, `LoadedPipeline`), `plugins/` paketi (6 yerleşik fabrika),
@@ -177,7 +216,7 @@ Mevcut hiçbir dosya değişmez. Yeni bir **hat** için ise yalnızca yeni bir `
   yükleyici çalışma başlamadan uygular.
 - **Sessizce yok sayma yok.** Bilinmeyen anahtar, bilinmeyen parametre, yinelenen tür kaydı hata verir.
 - **Bilinen sınırlamalar:** topoloji doğrusal; "bant genişliği" yapılandırması veri çıkarımı yapar
-  (istemci başına *toplam* için durumlu aşama gerekir); hatalı veri satırları hâlâ yalnızca sayılır (5. hafta).
+  (istemci başına *toplam* için durumlu aşama gerekir).
 
 ## Testler
 
@@ -188,17 +227,24 @@ JUnit 5, `mvn test`. Kapsama raporu: `target/site/jacoco/index.html`.
 - `config/RegistryTest` — `ServiceLoader` keşfi, mevcut dosyalara dokunmadan yeni tür ekleme, çift kayıt reddi.
 - `config/MiniYamlTest` — desteklenen YAML alt kümesi ve satır numaralı hatalar.
 - `ConfigIntegrationTest` — gerçek `configs/*.yaml` dosyalarıyla uçtan uca; **aynı kodla üç yapılandırma
-  üç farklı çıktı** verir; `configs/invalid/` altındaki 7 örneğin hepsi çıkış kodu 2 verir ve dosya yazmaz.
-- v3 testleri (aşamalar, `PipelineBuilder`, `FileSink`, `IntegrationTest`...) duruyor.
+  üç farklı çıktı** verir; `configs/invalid/` altındaki tüm örneklerin hepsi çıkış kodu 2 verir ve dosya yazmaz.
+- `error/*Test` — politikalar, yönlendirme (alt akış hatası yukarıya yazılmaz), `retry(n)` + `fallback`, `ManagedRun`
+  (durum, çıkış kodu, **sessiz kayıp = MISMATCH**), JSONL biçimi.
+- `RawLineSourceTest`, `DecodeStageTest`, `ValidationStageTest` — bayt okuma (CRLF, boş dosya, boyut sınırı), katı UTF-8, kurallar.
+- `ChaosTest` — gerçek bozuk dosyada: çökme yok, 3 geçerli kayıt yazılır, 8 kayıt nedenle dead-letter'a gider, mutabakat
+  tutar; fail-fast kod 1 verir; boş dosya temiz işlenir; eski `file` kaynağı aynı dosyada çöker (karşılaştırma).
+- v3/v4 testleri (aşamalar, `PipelineBuilder`, `FileSink`, `IntegrationTest`...) duruyor; yalnızca sayaç kontrolleri yeni özete uyarlandı.
 
 ## Dizin yapısı
 
 ```
-configs/                     error-report, api-traffic, bandwidth-by-client (.yaml)
-configs/invalid/             7 hatalı örnek (README'deki iletilerin kaynağı)
+configs/                     error-report, api-traffic, bandwidth-by-client, dirty-dead-letter, dirty-skip, dirty-fail-fast
+configs/invalid/             11 hatalı örnek (7 v4 + 4 v5)
 data/access-small.log        örnek günlük (14 geçerli + 4 bozuk satır)
+data/access-dirty.log        kasıtlı bozulmuş günlük (11 satır; bkz. data/README.txt); access-empty.log: boş dosya
 src/main/java/edu/logflow/   çekirdek: Source, Stage, Sink, Emitter, Pipeline, PipelineBuilder, LogRecord,
                              ParserStage, PredicateFilterStage, ProjectionStage, FileSink, ConsoleSink, App ...
+src/main/java/edu/logflow/error/     hata modeli, politikalar, yönlendirici, özet, ManagedRun
 src/main/java/edu/logflow/config/    yükleyici, kayıt defterleri, fabrika arayüzleri, MiniYaml
 src/main/java/edu/logflow/plugins/   yerleşik fabrikalar
 src/main/resources/META-INF/services/ tür kayıtları (ServiceLoader)

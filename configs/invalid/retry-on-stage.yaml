@@ -1,0 +1,9 @@
+# retry yalnizca sink'te anlamli: ayristirma hatasi her denemede ayni sonucu verir.
+pipeline:
+  source: { type: file, params: { path: data/access-small.log } }
+  stages:
+    - type: parse
+      on-error: retry(3)
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+  sink: { type: console }

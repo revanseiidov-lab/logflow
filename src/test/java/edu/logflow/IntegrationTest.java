@@ -1,6 +1,11 @@
 package edu.logflow;
 
+import edu.logflow.error.ErrorPolicy;
+import edu.logflow.error.ErrorRouter;
+import edu.logflow.error.GuardedStage;
+import edu.logflow.error.RunSummary;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,10 +36,11 @@ class IntegrationTest {
         Path in = dir.resolve("in.log");
         Path out = dir.resolve("out.txt");
         Files.writeString(in, FIXTURE);
-        ParserStage parser = new ParserStage();
+        RunSummary summary = new RunSummary();
+        ErrorRouter router = new ErrorRouter(summary, null);
 
         Pipeline p = PipelineBuilder.from(new FileLineSource(in))
-                .via(parser)
+                .via(new GuardedStage<>("parse", new ParserStage(), ErrorPolicy.SKIP, router, false))
                 .via(PredicateFilterStage.minStatus(400))
                 .via(PredicateFilterStage.pathPrefix("/api"))
                 .via(new ProjectionStage("clientIp", "status", "path"))
@@ -46,7 +52,7 @@ class IntegrationTest {
                 "clientIp=10.0.0.4\tstatus=500\tpath=/api/items",
                 "clientIp=10.0.0.5\tstatus=503\tpath=/api/health"),
                 Files.readAllLines(out));
-        assertEquals(1, parser.malformedCount());
+        assertEquals(1, summary.skippedCount());
     }
 
     @Test
@@ -63,7 +69,7 @@ class IntegrationTest {
         assertEquals(0, exit);
         assertEquals(3, Files.readAllLines(out).size());
         assertEquals("clientIp=10.0.0.2\tstatus=401\tpath=/api/login", Files.readAllLines(out).get(0));
-        assertEquals(true, err.toString(StandardCharsets.UTF_8).contains("atlanan) satir sayisi: 1"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("atlanan (skip)  : 1"));
     }
 
     @Test

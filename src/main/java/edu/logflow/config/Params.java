@@ -62,6 +62,33 @@ public final class Params {
         throw typeError(name, "tam sayi", v);
     }
 
+    /** İsteğe bağlı tam sayı; yoksa varsayılan. */
+    public int optInt(String name, int defaultValue) {
+        return has(name) ? requireInt(name) : defaultValue;
+    }
+
+    /** İsteğe bağlı mantıksal değer ({@code true}/{@code false}); yoksa varsayılan. */
+    public boolean optBoolean(String name, boolean defaultValue) {
+        if (!has(name)) {
+            return defaultValue;
+        }
+        Object v = require(name);
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        throw typeError(name, "mantiksal deger (true/false)", v);
+    }
+
+    /** İsteğe bağlı metin listesi; yoksa boş liste. */
+    public List<String> optStringList(String name) {
+        return has(name) ? requireStringList(name) : List.of();
+    }
+
+    /** İsteğe bağlı tam sayı; yoksa null. */
+    public Integer optIntOrNull(String name) {
+        return has(name) ? requireInt(name) : null;
+    }
+
     /** Boş olmayan metin listesi: {@code [a, b]}. */
     public List<String> requireStringList(String name) {
         Object v = require(name);

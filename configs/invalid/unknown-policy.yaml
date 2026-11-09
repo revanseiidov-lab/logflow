@@ -1,0 +1,9 @@
+# bilinmeyen hata politikasi.
+pipeline:
+  source: { type: file, params: { path: data/access-small.log } }
+  stages:
+    - type: parse
+      on-error: ignore
+    - type: project
+      params: { fields: [timestamp, clientIp, status, path] }
+  sink: { type: console }

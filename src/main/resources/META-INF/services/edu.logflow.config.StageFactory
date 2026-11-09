@@ -1,3 +1,5 @@
 edu.logflow.plugins.ParseStageFactory
 edu.logflow.plugins.FilterStageFactory
 edu.logflow.plugins.ProjectStageFactory
+edu.logflow.plugins.DecodeStageFactory
+edu.logflow.plugins.ValidateStageFactory

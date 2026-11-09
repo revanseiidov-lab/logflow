@@ -1,5 +1,9 @@
 package edu.logflow;
 
+import edu.logflow.error.ErrorPolicy;
+import edu.logflow.error.ErrorRouter;
+import edu.logflow.error.GuardedStage;
+import edu.logflow.error.RunSummary;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
@@ -25,10 +29,14 @@ class PipelineTest {
             out.emit(LINE);
         };
 
-        PipelineBuilder.from(source).via(parser).to(received::add).run();
+        RunSummary summary = new RunSummary();
+        ErrorRouter router = new ErrorRouter(summary, null);
+        PipelineBuilder.from(source)
+                .via(new GuardedStage<>("parse", parser, ErrorPolicy.SKIP, router, false))
+                .to(received::add).run();
 
         assertEquals(2, received.size());
-        assertEquals(1, parser.malformedCount());
+        assertEquals(1, summary.skippedCount());
     }
 
     @Test
